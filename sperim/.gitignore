@@ -1,0 +1,9 @@
+output/
+.snakemake/
+input/input.tar.bz2
+input/chr21_32000000-34000000_10kread_DeepSimu_pass-cleaned.fa
+input/chr21_32000000-34000000_10kread_DeepSimu_pass.fa
+input/chr21_32000000-34000000_10kread_DeepSimu_sampled_read.fa
+input/chr21_32000000-34000000_2kread_e0.2_f1200_s0.2_DeepSimu_pass-cleaned.fa
+input/chr21_32000000-34000000_2kread_e0.2_f1200_s0.2_DeepSimu_sampled_read.fa
+input/sorted.chr21_32M_34M.fa

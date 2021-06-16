@@ -1,0 +1,10 @@
+channels:
+  - conda-forge
+  - bioconda
+dependencies:
+  - snakemake-minimal=6.4
+  - pip=21.1
+  - bzip2=1
+  - tar=1
+  - pip:
+      - gdown==3.13.0

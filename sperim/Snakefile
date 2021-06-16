@@ -3,6 +3,8 @@ from collections import namedtuple
 def dict2obj(d):
     return namedtuple('Struct', d)(**d)
 
+MIN_COVERAGE = 0.8
+
 INPUTs = [
     "sampled_read-10k-first100",    # Test
 #    "sorted.chr21_32M_34M",         # Hi-Fi
@@ -89,11 +91,26 @@ CR = {
 }
 
 
+# Check overlaps
+CO_LIMIT_ERRORs = [3]
+
+
 rule all:
     input:
         expand(
             "output/{fname}/fact_{fact}-{T}_s_{S}/kfinger/full-overlaps.paf",
             fname=INPUTs, fact=FACTORIZATIONs, T=Ts, S=Ss,
+        ),
+        expand(
+            "output/{fname}/minimap2/report-check-minimap-overlaps-{limit_error}.txt",
+            fname=INPUTs,
+            limit_error=CO_LIMIT_ERRORs,
+        ),
+        expand(
+            "output/{fname}/fact_{fact}-{T}_s_{S}/kfinger/report-check-overlaps-{type_co}-{limit_error}.txt",
+            fname=INPUTs, fact=FACTORIZATIONs, T=Ts, S=Ss,
+            limit_error=CO_LIMIT_ERRORs,
+            type_co=['full', 'outmatch'],
         ),
 
 rule download_inputs:
@@ -197,7 +214,7 @@ rule get_overlaps:
         "output/{fname}/fact_{suffix}/kfinger/full-overlaps.txt",
     params:
         prefix=lambda wildcards, output: os.path.dirname(output[0]),
-        min_coverage=0.8,
+        min_coverage=MIN_COVERAGE,
     log:
         time="output/{fname}/fact_{suffix}/kfinger/logs-get-overlaps.time",
         out="output/{fname}/fact_{suffix}/kfinger/logs-get-overlaps.out",
@@ -220,3 +237,75 @@ rule convert_to_paf_format:
         "../environment.yml"
     shell:
         "/usr/bin/time -v -o {log.time} python ../convert-to-paf-format.py {input.full_overlaps} {output} > {log.out} 2> {log.err}"
+
+
+rule check_overlaps_full:
+    input:
+        overlaps="output/{fname}/fact_{suffix}/kfinger/full-overlaps.txt",
+        fasta="input/{fname}.fa",
+    output:
+        "output/{fname}/fact_{suffix}/kfinger/report-check-overlaps-full-{limit_error}.txt",
+    log:
+        time="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-full-{limit_error}.time",
+        err="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-full-{limit_error}.err",
+    conda:
+        "../environment.yml"
+    shell:
+        "/usr/bin/time -v -o {log.time} python ./check-overlaps.py {input.overlaps} {input.fasta} {wildcards.limit_error} > {output} 2> {log.err}"
+
+rule check_overlaps_output_matchings:
+    input:
+        overlaps="output/{fname}/fact_{suffix}/kfinger/output-matchings.txt",
+        fasta="input/{fname}.fa",
+    output:
+        "output/{fname}/fact_{suffix}/kfinger/report-check-overlaps-outmatch-{limit_error}.txt",
+    log:
+        time="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-outmatch-{limit_error}.time",
+        err="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-outmatch-{limit_error}.err",
+    conda:
+        "../environment.yml"
+    shell:
+        "/usr/bin/time -v -o {log.time} python ./check-overlaps.py {input.overlaps} {input.fasta} {wildcards.limit_error} > {output} 2> {log.err}"
+
+rule run_minimap2:
+    input:
+        fasta="input/{fname}.fa",
+    output:
+        "output/{fname}/minimap2/ovlp.paf",
+    log:
+        time="output/{fname}/minimap2/logs-minimap2.time",
+        err="output/{fname}/minimap2/logs-minimap2.err",
+    threads: 4
+    shell:
+        "/usr/bin/time -v -o {log.time} minimap2 -x ava-pb -t {threads} {input.fasta} {input.fasta} > {output} 2> {log.err}"
+
+rule get_minimap_overlaps:
+    input:
+        "output/{fname}/minimap2/ovlp.paf",
+    output:
+        "output/{fname}/minimap2/full-minimap-overlaps.paf",
+    log:
+        time="output/{fname}/minimap2/logs-get-minimap-overlaps.time",
+        out="output/{fname}/minimap2/logs-get-minimap-overlaps.out",
+        err="output/{fname}/minimap2/logs-get-minimap-overlaps.err",
+    params:
+        prefix=lambda wildcards, output: os.path.dirname(output[0]),
+        min_coverage=MIN_COVERAGE,
+    conda:
+        "../environment.yml"
+    shell:
+        "/usr/bin/time -v -o {log.time} python ./get-minimap-overlaps.py {input} {params.min_coverage} {params.prefix}/ > {log.out} 2> {log.err}"
+
+rule check_minimap_overlaps:
+    input:
+        overlaps="output/{fname}/minimap2/full-minimap-overlaps.paf",
+        fasta="input/{fname}.fa",
+    output:
+        "output/{fname}/minimap2/report-check-minimap-overlaps-{limit_error}.txt",
+    log:
+        time="output/{fname}/minimap2/logs-check-minimap-overlaps-{limit_error}.time",
+        err="output/{fname}/minimap2/logs-check-minimap-overlaps-{limit_error}.err",
+    conda:
+        "../environment.yml"
+    shell:
+        "/usr/bin/time -v -o {log.time} python ./check-minimap-overlaps.py {input.overlaps} {input.fasta} {wildcards.limit_error} > {output} 2> {log.err}"

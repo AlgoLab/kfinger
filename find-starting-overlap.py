@@ -9,8 +9,9 @@ import time
 
 import sys
 import Levenshtein
+import itertools
 
-from collections import Counter
+from collections import Counter,defaultdict
 
 # PRIMARY PARAMETERS
 
@@ -109,11 +110,13 @@ output_file.write('# Output file: ' + str(output_file_name) + "\n")
 
 
 def get_matching_prefixes(f1, f2, k, downstream_k, min_downstream_length, search_gap, gap_length_tolerance, multiple_gaps):
-    
+
+    lenf1 = len(f1)
+    lenf2 = len(f2)
     #Find the longest common prefix of f1 and f2 (supposing that the first k integers are already identical)
     init_common_pos = k
-    while init_common_pos < min(len(f1), len(f2)) and f1[init_common_pos] == f2[init_common_pos]:
-        init_common_pos = init_common_pos + 1
+    while init_common_pos < lenf1 and init_common_pos < lenf2 and f1[init_common_pos] == f2[init_common_pos]:
+        init_common_pos += 1
     
     #Variable init_common_pos contains the 0-based position after the end of the common prefix
     
@@ -124,31 +127,33 @@ def get_matching_prefixes(f1, f2, k, downstream_k, min_downstream_length, search
 
     # SEARCH THE LONGEST GAP
 
-    # Initialize an empty dictionary
-    common_right_dict = dict()
-    
     #Fill the dictionary with the k-fingers of f1 for k = downstream_k
-    for i in range(len(f1))[init_common_pos:len(f1)-downstream_k]:
-        if sum(tuple(f1[i:i+downstream_k])) >= min_downstream_length:
-            common_right_dict[tuple(f1[i:i+downstream_k])] = i
+    sumf1 = tuple(itertools.accumulate(f1))
+    common_right_dict = {
+        tuple(f1[i:i+downstream_k]):i
+        for i in range(init_common_pos, lenf1-downstream_k)
+        if sumf1[i+downstream_k-1] - sumf1[i-1] >= min_downstream_length
+    }
 
     # The dictionary contains all the k-fingers of f1 for k = downstream_k (as keys) together their starting positions as values
 
     # Scan f2 from the end to position init_common_pos in order to search the common k-fingers for k = downstream_k
-    i = len(f2)-downstream_k
+    i = lenf2-downstream_k
     found = False
-    while i >= init_common_pos and found == False:
+    sumf2 = tuple(itertools.accumulate(f2))
+    while i >= init_common_pos:
         key = tuple(f2[i:i+downstream_k])
-        if  key in common_right_dict and abs(sum(f1[:common_right_dict[key]]) - sum(f2[:i])) <= gap_length_tolerance:
+        if  key in common_right_dict and abs(sumf1[common_right_dict[key]-1] - sumf2[i-1]) <= gap_length_tolerance:
             found = True
+            break
         else:
-            i = i - 1
+            i -= 1
 
     if found:
         #Find the longest common factor of f1 and f2 after the gap
         i = i + downstream_k
         p = common_right_dict[key] + downstream_k
-        while (p < len(f1) and i < len(f2)) and (f1[p] == f2[i]):
+        while (p < lenf1 and i < lenf2) and (f1[p] == f2[i]):
             p = p + 1
             i = i + 1
         
@@ -164,13 +169,12 @@ def get_matching_prefixes(f1, f2, k, downstream_k, min_downstream_length, search
                     k = k - 1
                     q = q - 1
             
-                found2 = False
-                while q >= init_common_pos and found2 == False:
+                while q >= init_common_pos:
                     key = tuple(f2[j:q+downstream_k])
                     if  key in common_right_dict and abs(sum(f1[:common_right_dict[key]]) - sum(f2[:q])) <= gap_length_tolerance:
-                        found2 = True
                         k = common_right_dict[key]
                         return_list.append([k,q])
+                        break
                     
                     q = q - 1
                        
@@ -183,19 +187,16 @@ with open(input_file_name_f,'r') as input_file_f:
     file_input_f = input_file_f.readlines()
 
 with open(input_file_name,'r') as input_file:
-    file_input = input_file.readlines()
+    file_input = tuple(read.split() for read in input_file)
 
 # Dizionario id_dict --> KEY: indice 0-based del read nel file di input; VALUE: lista di dimensione 1 contenente l'ID del read nel file di input
-id_dict = dict()
-for i in range(len(file_input)):
-    curr_list = file_input[i].split()
-    id_dict[i] = [curr_list[0]]
+id_dict = [ [n[0], -1] for n in file_input ]
 
 # Dizionario finger_dict --> KEY: k-finger (tupla di interi); VALUE: lista degli indici 0-based dei reads che contengono la k-finger chiave (la lista NON è un multi-insieme in quanto le k-fingers che occorrerono più volte in un read vengono rimosse)
 
 # Ai valori (liste di dimensione 1) del dizionario id_dict viene a questo punto aggiunto il numero di k-fingers che il read (chiave) contiene (NOTA: il valore non viene al momento usato); le liste dopo il for seguente avranno dimensione 2
 
-finger_dict = dict()
+finger_dict = defaultdict(list)
 
 count_retained_by_length = 0
 
@@ -208,11 +209,11 @@ max_length = 0
 leftmost_dict = {}
 
 # Dizionario leftmost_offset_dict: KEY: k-finger (tupla di interi); VALUE: lista degli offset delle k-fingers chiave (corrispondente ai reads nel dizionario finger_dict)
-leftmost_offset_dict = {}
+leftmost_offset_dict = defaultdict(list)
 # Dizionario leftmost_index_dict: KEY: k-finger (tupla di interi); VALUE: lista degli indici di inizio delle k-fingers chiave (corrispondente ai reads nel dizionario finger_dict)
-leftmost_index_dict = {}
+leftmost_index_dict = defaultdict(list)
 
-split_length = sum(int(l) for l in " ".join(file_input[0].split()[1:]).split(split_separator)[0].split())
+split_length = sum(int(l) for l in " ".join(file_input[0][1:]).split(split_separator)[0].split())
 
 for i in range(len(file_input)):
     
@@ -220,9 +221,8 @@ for i in range(len(file_input)):
     
     read = file_input[i]
 
-    list = read.split()
-    id = list[0]
-    finger = list[1:]
+    id = read[0]
+    finger = read[1:]
     
     finger = [int(f) for f in finger if f != split_separator]
     read_length = sum(finger)
@@ -231,10 +231,8 @@ for i in range(len(file_input)):
         max_length = read_length
     
     if read_length >= min_read_length and (max_read_length == 0 or read_length <= max_read_length):
-        value = id_dict[i]
-        value.append(len(finger)-k+1)
 
-        id_dict[i] = value
+        id_dict[i][1] = len(finger)-k+1
         
         temp_list_kfinger = []
 
@@ -244,33 +242,25 @@ for i in range(len(file_input)):
             if max_number_of_one != -1 and kfinger_tuple.count(1) > max_number_of_one:
                 ok_one = False
             
-            if ok_one == True and sum(kfinger_tuple) >= min_total_length:
-                value = finger_dict.get(kfinger_tuple, [])
-                value.append(i)
-                finger_dict[kfinger_tuple] = value
-                
-                value_off = leftmost_offset_dict.get(kfinger_tuple, [])
-                value_off.append(sum(finger[:j]))
-                leftmost_offset_dict[kfinger_tuple] = value_off
-                
-                value_index = leftmost_index_dict.get(kfinger_tuple, [])
-                value_index.append(j)
-                leftmost_index_dict[kfinger_tuple] = value_index
-                
+            if ok_one and sum(kfinger_tuple) >= min_total_length:
+                finger_dict[kfinger_tuple].append(i)
+                leftmost_offset_dict[kfinger_tuple].append(sum(finger[:j]))
+                leftmost_index_dict[kfinger_tuple].append(j)
+
                 temp_list_kfinger.append(kfinger_tuple)
 
         c = Counter(temp_list_kfinger)
         for key in c:
             if c[key] > 1:
-                value = finger_dict.get(key, [])
+                value = finger_dict[key]
                 value[len(value)-c[key]:len(value)] = []
                 finger_dict[key] = value
                 
-                value_off = leftmost_offset_dict.get(key, [])
+                value_off = leftmost_offset_dict[key]
                 value_off[len(value_off)-c[key]:len(value_off)] = []
                 leftmost_offset_dict[key] = value_off
 
-                value_index = leftmost_index_dict.get(key, [])
+                value_index = leftmost_index_dict[key]
                 value_index[len(value_index)-c[key]:len(value_index)] = []
                 leftmost_index_dict[key] = value_index
 
@@ -278,27 +268,30 @@ for i in range(len(file_input)):
             key = temp_list_kfinger[p]
             
             if c[key] == 1:
-                value = finger_dict.get(key, [])
-                value_off = leftmost_offset_dict.get(key, [])
-                value_index = leftmost_index_dict.get(key, [])
+                value = finger_dict[key]
+                value_off = leftmost_offset_dict[key]
+                value_index = leftmost_index_dict[key]
 
                 for j in range(len(value)-1):
                     read = value[j]
                     offset = value_off[j]
                     index = value_index[j]
                     d = leftmost_dict.get(read, dict())
-                    if not (i in d):
+                    if i not in d:
                         d[i] = [offset, value_off[len(value)-1], index, value_index[len(value)-1]]
                         leftmost_dict[read] = d
 
-        count_retained_by_length = count_retained_by_length + 1
+        count_retained_by_length += 1
+
+del leftmost_offset_dict
+del leftmost_index_dict
 
 output_file.write('# Number of retained reads: ' + str(int(count_retained_by_length/2)) + ' out of ' + str(int(len(file_input)/2)) + "\n")
 output_file.write('//' + "\n")
 
 # Dizionario sharing_dict --> KEY: tupla di due indici 0-based di reads; VALUE: numero di k-fingers che i due reads chiave hanno in comune (vengono contate solo le k-fingers che sono uniche nei due reads; il primo indice di read è sempre minore del secondo)
 
-sharing_dict = dict()
+sharing_dict = defaultdict(int)
 
 # Il blocco seguente rimuove i duplicati anche se di fatto non ci sono perché filtrati sopra (anzi è proprio inutile usare
 for kfinger in finger_dict:
@@ -310,23 +303,22 @@ for kfinger in finger_dict:
     for i in range(len(shared_list)):
         for j in range(i+1, len(shared_list)):
             if shared_list[i] != shared_list[j]:
-                value = sharing_dict.get((shared_list[i], shared_list[j]), 0)
-                value = value + 1
-                sharing_dict[(shared_list[i], shared_list[j])] = value
+                sharing_dict[(shared_list[i], shared_list[j])] += 1
 
 # Dizionario filtered_sharing_dict --> KEY: tupla di due indici 0-based di reads; VALUE: numero di k-fingers che i due reads chiave hanno in comune (non compaiono le coppie di reads che condividono un numero di k-fingers uniche al di sotto della soglia minima min_number_unique_kfingers)
 
 #sys.stderr.write(str('Filtering...\n'))
 
-filtered_sharing_dict = dict()
-
-for pair in sharing_dict:
-    if sharing_dict[pair] >= min_number_unique_kfingers:
-        filtered_sharing_dict[pair] = sharing_dict[pair]
+filtered_sharing_dict = {
+    pair:numb
+    for pair,numb in sharing_dict.items()
+    if numb >= min_number_unique_kfingers
+}
+del sharing_dict
 
 ordered_keys = sorted(filtered_sharing_dict.keys())
 
-read_dict = dict()
+read_dict = {}
 
 count = 0
 
@@ -341,7 +333,7 @@ for pair in ordered_keys:
     first_read_list_f = first_read_f.split()[1:]
     first_read_finger_f = [factor for factor in first_read_list_f[:] if factor != split_separator]
     
-    first_read_finger = [int(l) for l in file_input[first_read_index].split()[1:] if l != '|']
+    first_read_finger = [int(l) for l in file_input[first_read_index][1:] if l != '|']
    
     # Sequenza del read di indice minore
     first_read_sequence = ''.join(first_read_finger_f)
@@ -356,7 +348,7 @@ for pair in ordered_keys:
     second_read_list_f = file_input_f[second_read_index].split()[1:]
     second_read_finger_f = [factor for factor in second_read_list_f[:] if factor != '|']
 
-    second_read_finger = [int(l) for l in file_input[second_read_index].split()[1:] if l != '|']
+    second_read_finger = [int(l) for l in file_input[second_read_index][1:] if l != '|']
 
     # Sequenza del read di indice maggiore
     second_read_sequence = ''.join(second_read_finger_f)
@@ -413,7 +405,7 @@ for pair in ordered_keys:
                 start_cut = (left_most_first_read_offset - second_start_prefix_split) % split_length
                 split_count = (left_most_first_read_offset - second_start_prefix_split - start_cut) // split_length
                 upstream_split = left_most_second_read_offset - second_start_prefix_split - split_count * split_length
-                window_list = file_input[second_read_index].split(split_separator)
+                window_list = " ".join(file_input[second_read_index]).split(split_separator)
 
             #upstream_split = left_most_second_read_offset - second_start_prefix_split - split_count * split_length
             #initial_start_cut_seq = first_read_sequence[start_cut:start_cut+split_length]
@@ -430,7 +422,7 @@ for pair in ordered_keys:
                 start_cut = (left_most_second_read_offset - first_start_prefix_split) % split_length
                 split_count = (left_most_second_read_offset - first_start_prefix_split - start_cut) // split_length
                 upstream_split = left_most_first_read_offset - first_start_prefix_split - split_count * split_length
-                window_list = file_input[first_read_index].split(split_separator)
+                window_list = " ".join(file_input[first_read_index]).split(split_separator)
 
             #initial_start_cut_seq = second_read_sequence[start_cut:start_cut+split_length]
             initial_start_cut_seq = second_read_sequence[start_cut:]

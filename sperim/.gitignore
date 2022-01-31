@@ -1,4 +1,5 @@
 output/
+env/
 .snakemake/
 input/input.tar.bz2
 input/chr21_32000000-34000000_10kread_DeepSimu_pass-cleaned.fa

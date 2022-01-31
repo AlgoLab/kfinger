@@ -1,5 +1,7 @@
-import Levenshtein
+import math
 import sys
+
+import edlib
 
 # File of the matchings/overlaps
 mini_file = sys.argv[1]
@@ -99,13 +101,17 @@ for record in overlap_list:
             
         err = 0
         if ov1 != ov2:
-            err = Levenshtein.distance(ov1, ov2)/max(len(ov1), len(ov2))*100
+            ed_res = edlib.align(
+                ov1, ov2,
+                k = int(math.ceil( max(len(ov1), len(ov2)) * 2 * limit_error / 100))
+            )
+            err = ed_res['editDistance'] / max(len(ov1), len(ov2))*100
 
         if err == 0:
             count_0err = count_0err + 1
             if is_present:
                 present_0 = present_0 + 1
-        elif err <= limit_error:
+        elif ed_res['editDistance'] != -1 and err <= limit_error:
             count_ok = count_ok + 1
             if is_present:
                 present_ok = present_ok + 1

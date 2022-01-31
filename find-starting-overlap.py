@@ -48,7 +48,8 @@ min_downstream_length = int(sys.argv[11])  # 10 for error-free datasets, 20 othe
 gap_length_tolerance = int(sys.argv[12])   # 0 for error-free datasets, 15 otherwise
 
 # Path of the output directory
-output_path = sys.argv[13]
+# output_path = sys.argv[13]
+output_file_name = sys.argv[13]
 
 # SECONDARY PARAMETERS
 
@@ -71,16 +72,16 @@ print_error = False     # False
 only_first_overlaps = -1     # -1, all the overlaps are produced as output
 
 # Also the FASTA file of the cut reads is produced
-print_read = False   # False
+# print_read = False   # False
 
 print_log = False   # False
 
-output_file_name = output_path + "raw-matchings.txt"
+# output_file_name = output_path + "raw-matchings.txt"
 output_file = open(output_file_name, "w")
 
-if print_read:
-    read_file_name = output_path + "cut-reads.fa"
-    read_file = open(read_file_name, "w")
+# if print_read:
+#     read_file_name = output_path + "cut-reads.fa"
+#     read_file = open(read_file_name, "w")
 
 output_file.write('# RAW MATCHING PARAMETERS:\n')
 output_file.write('# Script: ' + sys.argv[0] + "\n")
@@ -462,13 +463,13 @@ for pair in ordered_keys:
 
         output_file.write(out_string + "\n")
 
-        if print_read:
-            if which_read == 1:
-                read_file.write(">" + id_dict[first_read_index][0] + "_" + str(start_cut) + "\n")
-                read_file.write(first_read_sequence[start_cut:] + "\n")
-            else:
-                read_file.write(">" + id_dict[second_read_index][0] + "_" + str(start_cut) + "\n")
-                read_file.write(second_read_sequence[start_cut:] + "\n")
+#         if print_read:
+#             if which_read == 1:
+#                 read_file.write(">" + id_dict[first_read_index][0] + "_" + str(start_cut) + "\n")
+#                 read_file.write(first_read_sequence[start_cut:] + "\n")
+#             else:
+#                 read_file.write(">" + id_dict[second_read_index][0] + "_" + str(start_cut) + "\n")
+#                 read_file.write(second_read_sequence[start_cut:] + "\n")
 
         count = count + 1
 
@@ -560,6 +561,5 @@ for pair in ordered_keys:
 
 output_file.close()
 
-if print_read:
-    read_file.close()
-
+# if print_read:
+#     read_file.close()

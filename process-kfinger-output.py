@@ -17,7 +17,7 @@ strict_consistency = bool(int(sys.argv[3]))     # 0
 # A weak consinstency accepts even one between 0,0 and 1,1 (with non 1,0 and 0,1), or 1,0 and 0,1 (with non 0,0 or 1,1).
 
 # Output path
-output_path = sys.argv[4]
+output_file_name = sys.argv[4]
 
 with open(finger_alignments,'r') as finger_input:
     finger_input_list = finger_input.readlines()
@@ -28,8 +28,6 @@ if finger_input_list[-1][:5] == 'Time:':
 parameter_records = finger_input_list[:finger_input_list.index("//\n")]
 
 finger_input_list = finger_input_list[finger_input_list.index("//\n")+1:]
-
-output_file_name = output_path + "output-matchings.txt"
 
 output_file = open(output_file_name, "w")
 

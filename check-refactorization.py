@@ -1,8 +1,7 @@
 #!/usr/bin/env python
 # coding: utf-8
 
-import time
-
+import gc
 import sys
 import Levenshtein
 
@@ -45,7 +44,7 @@ min_downstream_length = int(sys.argv[10])  # 10 for error-free datasets, 20 othe
 gap_length_tolerance = int(sys.argv[11])   # 0 for error-free datasets, 20 otherwise
 
 # Output path
-output_path = sys.argv[12]
+output_file_name = sys.argv[12]
 
 # SECONDARY PARAMETERS
 
@@ -62,16 +61,16 @@ split_separator = '|'       # '|'
 
 print_error = False         # False
 
-output_file_name = output_path + "refact-matchings.txt"
-
 output_file = open(output_file_name, "w")
 
 def get_matching_prefixes(f1, f2, k, downstream_k, min_downstream_length, search_gap, gap_length_tolerance, multiple_gaps):
-    
+
+    lenf1 = len(f1)
+    lenf2 = len(f2)
     #Find the longest common prefix of f1 and f2 (supposing that the first k integers are already identical)
     init_common_pos = k
-    while init_common_pos < min(len(f1), len(f2)) and f1[init_common_pos] == f2[init_common_pos]:
-        init_common_pos = init_common_pos + 1
+    while init_common_pos < min(lenf1, lenf2) and f1[init_common_pos] == f2[init_common_pos]:
+        init_common_pos += 1
     
     #Variable init_common_pos contains the 0-based position after the end of the common prefix
     
@@ -82,31 +81,31 @@ def get_matching_prefixes(f1, f2, k, downstream_k, min_downstream_length, search
 
     # SEARCH THE LONGEST GAP
 
-    # Initialize an empty dictionary
-    common_right_dict = dict()
-    
     #Fill the dictionary with the k-fingers of f1 for k = downstream_k
-    for i in range(len(f1))[init_common_pos:len(f1)-downstream_k]:
-        if sum(tuple(f1[i:i+downstream_k])) >= min_downstream_length:
-            common_right_dict[tuple(f1[i:i+downstream_k])] = i
+    common_right_dict = {
+        tuple(f1[i:i+downstream_k]):i
+        for i in range(init_common_pos, lenf1-downstream_k)
+        if sum(f1[i:i+downstream_k]) >= min_downstream_length
+    }
 
     # The dictionary contains all the k-fingers of f1 for k = downstream_k (as keys) together their starting positions as values
 
     # Scan f2 from the end to position init_common_pos in order to search the common k-fingers for k = downstream_k
-    i = len(f2)-downstream_k
+    i = lenf2-downstream_k
     found = False
-    while i >= init_common_pos and found == False:
+    while i >= init_common_pos:
         key = tuple(f2[i:i+downstream_k])
         if  key in common_right_dict and abs(sum(f1[:common_right_dict[key]]) - sum(f2[:i])) <= gap_length_tolerance:
             found = True
+            break
         else:
-            i = i - 1
+            i -= 1
 
     if found:
         #Find the longest common factor of f1 and f2 after the gap
         i = i + downstream_k
         p = common_right_dict[key] + downstream_k
-        while (p < len(f1) and i < len(f2)) and (f1[p] == f2[i]):
+        while (p < lenf1 and i < lenf2) and (f1[p] == f2[i]):
             p = p + 1
             i = i + 1
         
@@ -122,13 +121,12 @@ def get_matching_prefixes(f1, f2, k, downstream_k, min_downstream_length, search
                     k = k - 1
                     q = q - 1
             
-                found2 = False
-                while q >= init_common_pos and found2 == False:
+                while q >= init_common_pos:
                     key = tuple(f2[j:q+downstream_k])
                     if  key in common_right_dict and abs(sum(f1[:common_right_dict[key]]) - sum(f2[:q])) <= gap_length_tolerance:
-                        found2 = True
                         k = common_right_dict[key]
                         return_list.append([k,q])
+                        break
                     
                     q = q - 1
                        
@@ -139,12 +137,11 @@ def get_matching_prefixes(f1, f2, k, downstream_k, min_downstream_length, search
 
 
 
-with open(raw_overlap_file,'r') as input_overlap:
-    record_list = input_overlap.readlines()
+input_overlap = open(raw_overlap_file,'r')
 
-parameter_records = record_list[:record_list.index("//\n")]
-
-for par in parameter_records:
+for par in input_overlap:
+    if par == "//\n":
+        break
     output_file.write(par)
 
 output_file.write('# REFACTORIZATION MATCHING PARAMETERS:\n')
@@ -178,26 +175,25 @@ output_file.write('# Output file: ' + str(output_file_name) + "\n")
 
 output_file.write("//\n")
 
-overlap_records = record_list[record_list.index("//\n")+1:]
-
 with open(input_orig_finger_file,'r') as input_orig_finger:
     orig_fing_list = input_orig_finger.readlines()
 
 split_length = sum(int(l) for l in " ".join(orig_fing_list[0].split()[1:]).split(split_separator)[0].split())
 
-dict_tuples = [(row.split()[0], row.split()[1:]) for row in orig_fing_list]
-orig_finger_dict = dict(dict_tuples)
+orig_finger_dict = dict((row.split()[0], row.split()[1:]) for row in orig_fing_list)
+del orig_fing_list
 
 with open(input_orig_fact_file,'r') as input_orig_fact:
     orig_fact_list = input_orig_fact.readlines()
 
-dict_tuples = [(row.split()[0], row.split()[1:]) for row in orig_fact_list]
-orig_fact_dict = dict(dict_tuples)
+orig_fact_dict = dict((row.split()[0], row.split()[1:]) for row in orig_fact_list)
+del orig_fact_list
 
+gc.collect()
 
-for i in range(len(overlap_records)):
+for overlap_record in input_overlap:
     
-    fields = overlap_records[i].split()
+    fields = overlap_record.split()
     
     first_read_index = fields[1]
     second_read_index = fields[7]

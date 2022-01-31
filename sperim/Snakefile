@@ -8,7 +8,8 @@ MIN_COVERAGE = 0.8
 INPUTs = [
     # "sampled_read-10k-first100",    # Test
     "sorted.chr21_32M_34M",         # Hi-Fi
-    "chr21_32000000-34000000_10kread_DeepSimu_pass-cleaned",  # DeepSimulator before error
+    "chr21_32000000-34000000_10kread_DeepSimu_sampled_read",  # DeepSimulator before error
+    # "chr21_32000000-34000000_10kread_DeepSimu_pass-cleaned",  # DeepSimulator with error
 ]
 FACTORIZATIONs = ["CFL_ICFL_COMB"]
 Ts = [30]
@@ -21,8 +22,11 @@ INPUT_METADATA = {
     "sorted.chr21_32M_34M": {
         'type': 'with-errors',
     },
-    "chr21_32000000-34000000_10kread_DeepSimu_pass-cleaned": {
+    "chr21_32000000-34000000_10kread_DeepSimu_sampled_read": {
         'type': 'error-free',
+    },
+    "chr21_32000000-34000000_10kread_DeepSimu_pass-cleaned": {
+        'type': 'with-errors',
     },
 }
 
@@ -86,8 +90,16 @@ CO_LIMIT_ERRORs = [3]
 rule all:
     input:
         expand(
-            "output/{fname}/fact_{fact}-{T}_s_{S}/kfinger/full-overlaps.paf",
+            "output/{fname}/fact_{fact}-{T}_s_{S}/kfinger/{stage}-{type_co}.paf",
             fname=INPUTs, fact=FACTORIZATIONs, T=Ts, S=Ss,
+            stage=['matchings', 'overlaps'],
+            type_co=['raw', 'refact']
+        ),
+        expand(
+            "output/{fname}/fact_{fact}-{T}_s_{S}/kfinger/ovlp-eval-{stage}-{type_co}.csv",
+            fname=INPUTs, fact=FACTORIZATIONs, T=Ts, S=Ss,
+            stage=['matchings', 'overlaps'],
+            type_co=['raw', 'refact']
         ),
         expand(
             "output/{fname}/minimap2/report-check-minimap-overlaps-{limit_error}.txt",
@@ -95,10 +107,15 @@ rule all:
             limit_error=CO_LIMIT_ERRORs,
         ),
         expand(
-            "output/{fname}/fact_{fact}-{T}_s_{S}/kfinger/report-check-overlaps-{type_co}-{limit_error}.txt",
+            "output/{fname}/minimap2/ovlp-eval.csv",
+            fname=INPUTs,
+        ),
+        expand(
+            "output/{fname}/fact_{fact}-{T}_s_{S}/kfinger/report-check-{stage}-{type_co}-{limit_error}.txt",
             fname=INPUTs, fact=FACTORIZATIONs, T=Ts, S=Ss,
             limit_error=CO_LIMIT_ERRORs,
-            type_co=['full', 'outmatch'],
+            stage=['matchings', 'overlaps'],
+            type_co=['raw', 'refact']
         ),
 
 rule download_inputs:
@@ -138,16 +155,15 @@ rule fingerprint:
     conda:
         "../environment.yml"
     shell:
-        "/usr/bin/time -v -o {log.time} python ../fingerprint.py --type long_reads --path {params.prefix}/ --fasta {input} --type_factorization {wildcards.fact}-{wildcards.T} --s_fact {wildcards.S} -n {threads} > {log.out} 2> {log.err}"
+        "/usr/bin/time -v -o {log.time} pypy ../fingerprint.py --type long_reads --path {params.prefix}/ --fasta {input} --type_factorization {wildcards.fact}-{wildcards.T} --s_fact {wildcards.S} -n {threads} > {log.out} 2> {log.err}"
 
 rule find_starting_overlap:
     input:
         fingerprint="output/{fname}/fact_{suffix}/fingerprint_{suffix}.txt",
         fact_fingerprint="output/{fname}/fact_{suffix}/fact_fingerprint_{suffix}.txt",
     output:
-        "output/{fname}/fact_{suffix}/kfinger/raw-matchings.txt",
+        "output/{fname}/fact_{suffix}/kfinger/matchings-raw.txt",
     params:
-        prefix=lambda wildcards, output: os.path.dirname(output[0]),
         p=lambda wildcards: dict2obj(FSO[INPUT_METADATA[wildcards.fname]['type']]),
     log:
         time="output/{fname}/fact_{suffix}/kfinger/logs-find-starting-overlap.time",
@@ -156,17 +172,16 @@ rule find_starting_overlap:
     conda:
         "../environment.yml"
     shell:
-        "/usr/bin/time -v -o {log.time} python ../find-starting-overlap.py {input.fingerprint} {input.fact_fingerprint} {params.p.k} {params.p.mintl} {params.p.minukf} {params.p.minrl} {params.p.maxrl} {params.p.mincov} {params.p.extspovl} {params.p.downk} {params.p.mindownl} {params.p.gapltol} {params.prefix}/ > {log.out} 2> {log.err}"
+        "/usr/bin/time -v -o {log.time} pypy ../find-starting-overlap.py {input.fingerprint} {input.fact_fingerprint} {params.p.k} {params.p.mintl} {params.p.minukf} {params.p.minrl} {params.p.maxrl} {params.p.mincov} {params.p.extspovl} {params.p.downk} {params.p.mindownl} {params.p.gapltol} {output} > {log.out} 2> {log.err}"
 
 rule check_refactorization:
     input:
-        raw_overlap="output/{fname}/fact_{suffix}/kfinger/raw-matchings.txt",
+        raw_overlap="output/{fname}/fact_{suffix}/kfinger/matchings-raw.txt",
         fingerprint="output/{fname}/fact_{suffix}/fingerprint_{suffix}.txt",
         fact_fingerprint="output/{fname}/fact_{suffix}/fact_fingerprint_{suffix}.txt",
     output:
-        "output/{fname}/fact_{suffix}/kfinger/refact-matchings.txt",
+        "output/{fname}/fact_{suffix}/kfinger/matchings-refact.txt",
     params:
-        prefix=lambda wildcards, output: os.path.dirname(output[0]),
         p=lambda wildcards: dict2obj(CR[INPUT_METADATA[wildcards.fname]['type']]),
     log:
         time="output/{fname}/fact_{suffix}/kfinger/logs-check-refactorization.time",
@@ -175,85 +190,69 @@ rule check_refactorization:
     conda:
         "../environment.yml"
     shell:
-        "/usr/bin/time -v -o {log.time} python ../check-refactorization.py {input.raw_overlap} {input.fingerprint} {input.fact_fingerprint} {params.p.fact} {params.p.k} {params.p.mintl} {params.p.mincov} {params.p.extspovl} {params.p.downk} {params.p.mindownl} {params.p.gapltol} {params.prefix}/ > {log.out} 2> {log.err}"
-
-rule process_kfinger_output:
-    input:
-        refact_matchings="output/{fname}/fact_{suffix}/kfinger/refact-matchings.txt",
-    output:
-        "output/{fname}/fact_{suffix}/kfinger/output-matchings.txt",
-    params:
-        prefix=lambda wildcards, output: os.path.dirname(output[0]),
-        check_consistent_overlaps=0,
-        strict_consistency=0,   # unused if check_consistent_overlaps is 0
-    log:
-        time="output/{fname}/fact_{suffix}/kfinger/logs-process-kfinger-output.time",
-        out="output/{fname}/fact_{suffix}/kfinger/logs-process-kfinger-output.out",
-        err="output/{fname}/fact_{suffix}/kfinger/logs-process-kfinger-output.err",
-    conda:
-        "../environment.yml"
-    shell:
-        "/usr/bin/time -v -o {log.time} python ../process-kfinger-output.py {input.refact_matchings} {params.check_consistent_overlaps} {params.strict_consistency} {params.prefix}/ > {log.out} 2> {log.err}"
+        "/usr/bin/time -v -o {log.time} pypy ../check-refactorization.py {input.raw_overlap} {input.fingerprint} {input.fact_fingerprint} {params.p.fact} {params.p.k} {params.p.mintl} {params.p.mincov} {params.p.extspovl} {params.p.downk} {params.p.mindownl} {params.p.gapltol} {output} > {log.out} 2> {log.err}"
 
 rule get_overlaps:
     input:
-        output_matchings="output/{fname}/fact_{suffix}/kfinger/output-matchings.txt",
+        "output/{fname}/fact_{suffix}/kfinger/matchings-{type}.txt",
     output:
-        "output/{fname}/fact_{suffix}/kfinger/full-overlaps.txt",
+        "output/{fname}/fact_{suffix}/kfinger/overlaps-{type}.txt",
     params:
-        prefix=lambda wildcards, output: os.path.dirname(output[0]),
         min_coverage=MIN_COVERAGE,
     log:
-        time="output/{fname}/fact_{suffix}/kfinger/logs-get-overlaps.time",
-        out="output/{fname}/fact_{suffix}/kfinger/logs-get-overlaps.out",
-        err="output/{fname}/fact_{suffix}/kfinger/logs-get-overlaps.err",
+        time="output/{fname}/fact_{suffix}/kfinger/logs-get-overlaps-{type}.time",
+        out="output/{fname}/fact_{suffix}/kfinger/logs-get-overlaps-{type}.out",
+        err="output/{fname}/fact_{suffix}/kfinger/logs-get-overlaps-{type}.err",
     conda:
         "../environment.yml"
     shell:
-        "/usr/bin/time -v -o {log.time} python ../get-overlaps.py {input.output_matchings} {params.min_coverage} {params.prefix}/ > {log.out} 2> {log.err}"
+        "/usr/bin/time -v -o {log.time} pypy ../get-overlaps.py {input} {params.min_coverage} {output} > {log.out} 2> {log.err}"
+
+rule process_kfinger_output:
+    input:
+        "output/{fname}/fact_{suffix}/kfinger/{stage}-{type}.txt",
+    output:
+        "output/{fname}/fact_{suffix}/kfinger/processed-{stage}-{type}.txt",
+    params:
+        check_consistent_overlaps=0,
+        strict_consistency=0,   # unused if check_consistent_overlaps is 0
+    log:
+        time="output/{fname}/fact_{suffix}/kfinger/logs-process-kfinger-output-{stage}-{type}.time",
+        out="output/{fname}/fact_{suffix}/kfinger/logs-process-kfinger-output-{stage}-{type}.out",
+        err="output/{fname}/fact_{suffix}/kfinger/logs-process-kfinger-output-{stage}-{type}.err",
+    conda:
+        "../environment.yml"
+    shell:
+        "/usr/bin/time -v -o {log.time} pypy ../process-kfinger-output.py {input} {params.check_consistent_overlaps} {params.strict_consistency} {output} > {log.out} 2> {log.err}"
+
+rule check_overlaps:
+    input:
+        overlaps="output/{fname}/fact_{suffix}/kfinger/processed-{stage}-{type}.txt",
+        fasta="input/{fname}.fa",
+    output:
+        "output/{fname}/fact_{suffix}/kfinger/report-check-{stage}-{type}-{limit_error}.txt",
+    log:
+        time="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-{stage}-{type}-{limit_error}.time",
+        err="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-{stage}-{type}-{limit_error}.err",
+    shell:
+        "/usr/bin/time -v -o {log.time} pypy ./check-overlaps.py {input.overlaps} {input.fasta} {wildcards.limit_error} > {output} 2> {log.err}"
+
 
 rule convert_to_paf_format:
     input:
-        full_overlaps="output/{fname}/fact_{suffix}/kfinger/full-overlaps.txt",
+        full_overlaps="output/{fname}/fact_{suffix}/kfinger/{stage}-{type}.txt",
     output:
-        "output/{fname}/fact_{suffix}/kfinger/full-overlaps.paf",
+        "output/{fname}/fact_{suffix}/kfinger/{stage}-{type}.paf",
     log:
-        time="output/{fname}/fact_{suffix}/kfinger/logs-convert-to-paf-format.time",
-        out="output/{fname}/fact_{suffix}/kfinger/logs-convert-to-paf-format.out",
-        err="output/{fname}/fact_{suffix}/kfinger/logs-convert-to-paf-format.err",
+        time="output/{fname}/fact_{suffix}/kfinger/logs-convert-to-paf-format-{stage}-{type}.time",
+        out="output/{fname}/fact_{suffix}/kfinger/logs-convert-to-paf-format-{stage}-{type}.out",
+        err="output/{fname}/fact_{suffix}/kfinger/logs-convert-to-paf-format-{stage}-{type}.err",
     conda:
         "../environment.yml"
     shell:
-        "/usr/bin/time -v -o {log.time} python ../convert-to-paf-format.py {input.full_overlaps} {output} > {log.out} 2> {log.err}"
+        "/usr/bin/time -v -o {log.time} pypy ../convert-to-paf-format.py {input.full_overlaps} {output} > {log.out} 2> {log.err}"
 
 
-rule check_overlaps_full:
-    input:
-        overlaps="output/{fname}/fact_{suffix}/kfinger/full-overlaps.txt",
-        fasta="input/{fname}.fa",
-    output:
-        "output/{fname}/fact_{suffix}/kfinger/report-check-overlaps-full-{limit_error}.txt",
-    log:
-        time="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-full-{limit_error}.time",
-        err="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-full-{limit_error}.err",
-    conda:
-        "../environment.yml"
-    shell:
-        "/usr/bin/time -v -o {log.time} python ./check-overlaps.py {input.overlaps} {input.fasta} {wildcards.limit_error} > {output} 2> {log.err}"
-
-rule check_overlaps_output_matchings:
-    input:
-        overlaps="output/{fname}/fact_{suffix}/kfinger/output-matchings.txt",
-        fasta="input/{fname}.fa",
-    output:
-        "output/{fname}/fact_{suffix}/kfinger/report-check-overlaps-outmatch-{limit_error}.txt",
-    log:
-        time="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-outmatch-{limit_error}.time",
-        err="output/{fname}/fact_{suffix}/kfinger/logs-check-overlaps-outmatch-{limit_error}.err",
-    conda:
-        "../environment.yml"
-    shell:
-        "/usr/bin/time -v -o {log.time} python ./check-overlaps.py {input.overlaps} {input.fasta} {wildcards.limit_error} > {output} 2> {log.err}"
 
 rule run_minimap2:
     input:
@@ -282,7 +281,7 @@ rule get_minimap_overlaps:
     conda:
         "../environment.yml"
     shell:
-        "/usr/bin/time -v -o {log.time} python ./get-minimap-overlaps.py {input} {params.min_coverage} {params.prefix}/ > {log.out} 2> {log.err}"
+        "/usr/bin/time -v -o {log.time} pypy ./get-minimap-overlaps.py {input} {params.min_coverage} {params.prefix}/ > {log.out} 2> {log.err}"
 
 rule check_minimap_overlaps:
     input:
@@ -293,7 +292,56 @@ rule check_minimap_overlaps:
     log:
         time="output/{fname}/minimap2/logs-check-minimap-overlaps-{limit_error}.time",
         err="output/{fname}/minimap2/logs-check-minimap-overlaps-{limit_error}.err",
-    conda:
-        "../environment.yml"
     shell:
-        "/usr/bin/time -v -o {log.time} python ./check-minimap-overlaps.py {input.overlaps} {input.fasta} {wildcards.limit_error} > {output} 2> {log.err}"
+        "/usr/bin/time -v -o {log.time} pypy ./check-minimap-overlaps.py {input.overlaps} {input.fasta} {wildcards.limit_error} > {output} 2> {log.err}"
+
+
+rule map_to_ref:
+    input:
+        ref="input/chr21_32000000-34000000.fa.gz",
+        fasta="input/{fname}.fa",
+    output:
+        "output/{fname}/to_ref.paf.gz",
+    log:
+        time="output/{fname}/logs-to_ref.time",
+        err="output/{fname}/logs-to_ref.err",
+    threads: 4
+    shell:
+        "/usr/bin/time -v -o {log.time} minimap2 -cx map-pb -t {threads} {input.ref} {input.fasta} 2> {log.err} | sort -k6,6 -k8,8n | gzip -9 > {output}"
+
+rule index_real_overlaps:
+    input:
+        fasta="input/{fname}.fa",
+        to_ref="output/{fname}/to_ref.paf.gz",
+    output:
+        "output/{fname}/index-real_ovlp.bin",
+    log:
+        time="output/{fname}/logs-ovlp-index.time",
+        err="output/{fname}/logs-ovlp-index.err",
+    shell:
+        "/usr/bin/time -v -o {log.time} pypy ./ovlp-index.py {input.fasta} {input.to_ref} {output} &> {log.err}"
+
+rule eval_real_overlaps_minimap2:
+    input:
+        index="output/{fname}/index-real_ovlp.bin",
+        overlaps="output/{fname}/minimap2/full-minimap-overlaps.paf",
+    output:
+        "output/{fname}/minimap2/ovlp-eval.csv",
+    log:
+        time="output/{fname}/minimap2/logs-ovlp-eval.time",
+        err="output/{fname}/minimap2/logs-ovlp-eval.err",
+    shell:
+        "/usr/bin/time -v -o {log.time} pypy ./ovlp-eval-minimap2.py {input.index} {input.overlaps} > {output} 2> {log.err}"
+
+
+rule eval_real_overlaps_kfinger:
+    input:
+        index="output/{fname}/index-real_ovlp.bin",
+        overlaps="output/{fname}/fact_{suffix}/kfinger/{stage}-{type}.paf",
+    output:
+        "output/{fname}/fact_{suffix}/kfinger/ovlp-eval-{stage}-{type}.csv",
+    log:
+        time="output/{fname}/fact_{suffix}/kfinger/logs-ovlp-eval-{stage}-{type}.time",
+        err="output/{fname}/fact_{suffix}/kfinger/logs-ovlp-eval-{stage}-{type}.err",
+    shell:
+        "/usr/bin/time -v -o {log.time} pypy ./ovlp-eval-kfinger.py {input.index} {input.overlaps} > {output} 2> {log.err}"

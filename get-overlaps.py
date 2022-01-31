@@ -6,7 +6,7 @@ matching_file = sys.argv[1]
 
 min_coverage = float(sys.argv[2])   # 0.80
 
-output_path = sys.argv[3]
+output_file_name = sys.argv[3]
 
 # Le coordinate sono 0-based
 # Gli indici dei reads sono 1-based
@@ -16,7 +16,6 @@ with open(matching_file,'r') as matching_input:
 
 parameter_records = matching_list[:matching_list.index("//\n")]
 
-output_file_name = output_path + "full-overlaps.txt"
 output_file = open(output_file_name, "w")
 
 for par in parameter_records:
